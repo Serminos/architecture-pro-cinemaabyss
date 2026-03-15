@@ -1,0 +1,80 @@
+@startuml
+!include <C4/C4_Container>
+!include <C4/C4_Context>
+
+Person(user, "Пользователь", "Клиент (мобильное устройство, браузер, Smart TV)")
+
+System_Boundary(cinemaabyss, "Онлайн-кинотеатр Кинобездна") {
+
+    Container(gateway, "API Gateway / BFF", "Java/Spring Boot", "Маршрутизация, аутентификация, агрегация, адаптация данных под клиента (BFF)")
+
+    Container(user_svc, "User Service", "Go", "Управление пользователями, аутентификация")
+    Container(movies_svc, "Movies Service", "Go", "Метаданные фильмов: название, жанры, актёры, оценки")
+    Container(video_svc, "Video Service", "Go", "Управление видеофайлами, стриминг")
+    Container(subscription_svc, "Subscription Service", "Go", "Подписки, планы, сроки")
+    Container(payment_svc, "Payment Service", "Go", "Платежи, транзакции")
+    Container(discount_svc, "Discount Service", "Go", "Скидки, промокоды, акции")
+    Container(event_svc, "Event Service", "Go", "Сбор и обработка событий, интеграция с Kafka")
+
+    ContainerDb(user_db, "User DB", "PostgreSQL", "Данные пользователей")
+    ContainerDb(movies_db, "Movies DB", "PostgreSQL", "Метаданные фильмов")
+    ContainerDb(video_metadata_db, "Video Metadata DB", "PostgreSQL", "Метаданные видеофайлов")
+    ContainerDb(subscription_db, "Subscription DB", "PostgreSQL", "Подписки")
+    ContainerDb(payment_db, "Payment DB", "PostgreSQL", "Платежи")
+    ContainerDb(discount_db, "Discount DB", "PostgreSQL", "Скидки и промокоды")
+
+    Container(video_storage, "Video Storage", "S3 / MinIO", "Хранение видеофайлов")
+
+    Container(kafka, "Kafka", "Брокер сообщений", "Асинхронная шина событий")
+}
+
+System_Ext(payment_gateway, "Платёжная система", "Внешний шлюз")
+System_Ext(recommendation, "Рекомендательная система", "Внешний сервис рекомендаций")
+System_Ext(monolith, "Монолит (старая система)", "Go + PostgreSQL", "В процессе перехода")
+
+' Связи
+
+' Пользователь - Gateway
+Rel(user, gateway, "Использует", "HTTPS")
+
+' Gateway - Микросервисы (синхронно)
+Rel(gateway, user_svc, "Маршрутизирует", "REST")
+Rel(gateway, movies_svc, "Маршрутизирует", "REST")
+Rel(gateway, video_svc, "Маршрутизирует", "REST")
+Rel(gateway, subscription_svc, "Маршрутизирует", "REST")
+Rel(gateway, payment_svc, "Маршрутизирует", "REST")
+Rel(gateway, discount_svc, "Маршрутизирует", "REST")
+Rel(gateway, monolith, "Временно (Strangler Fig)", "REST")
+
+' Запрос рекомендаций (синхронно)
+Rel(gateway, recommendation, "Запрашивает рекомендации", "REST/HTTPS")
+
+' Микросервисы - свои БД
+Rel(user_svc, user_db, "Читает/пишет", "SQL")
+Rel(movies_svc, movies_db, "Читает/пишет", "SQL")
+Rel(video_svc, video_metadata_db, "Читает/пишет", "SQL")
+Rel(subscription_svc, subscription_db, "Читает/пишет", "SQL")
+Rel(payment_svc, payment_db, "Читает/пишет", "SQL")
+Rel(discount_svc, discount_db, "Читает/пишет", "SQL")
+
+' Video Service - Video Storage
+Rel(video_svc, video_storage, "Загружает/получает видео", "S3 API")
+
+' Публикация событий в Kafka
+Rel(user_svc, kafka, "Публикует (user.*)")
+Rel(movies_svc, kafka, "Публикует (movies.*)")
+Rel(video_svc, kafka, "Публикует (video.*)")
+Rel(subscription_svc, kafka, "Публикует (subscription.*)")
+Rel(payment_svc, kafka, "Публикует (payment.*)")
+Rel(discount_svc, kafka, "Публикует (discount.*)")
+
+' Потребление событий
+Rel(kafka, event_svc, "Доставляет события")
+
+' Передача событий для обучения рекомендательной системы (асинхронно)
+Rel(event_svc, recommendation, "Отправляет события для обучения", "REST/асинхронно")
+
+' Платежный сервис - внешняя платежная система
+Rel(payment_svc, payment_gateway, "Вызывает", "REST")
+
+@enduml
